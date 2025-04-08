@@ -1,133 +1,65 @@
-Thanks for sharing the output—it helps us pinpoint the issue. The log file `cron.log` isn’t being created, and the `syslog` entries show that the cron job is attempting to run, but there’s a problem with the crontab configuration that’s preventing it from executing correctly. Let’s break down the issues and fix them so the script runs as expected and logs its output to `cron.log`.
-
----
-
-### Step 1: Identify the Issues
-#### Issue 1: Syntax Error in Crontab
-The crontab entry has a syntax error. Here’s what you currently have:
-```
-SENDER_EMAIL=fgomecs@gmail.com
-SENDER_PASSWORD=wdim hzdd mwfp ejfa
-RECIPIENT_EMAIL=fgomecs@icloud.com
-0 * * * * /usr/bin/env python3 ~/nvidia-job-alert/job_alert.py >> ~/nvidia-job-alert/cron.log 2>&10 * * * * /usr/bin/env python3 ~/nvidia-job-alert/job_alert.py >> ~/nvidia-job-alert/cron.log 2>&1
-```
-- The line starting with `0 * * * *` is malformed. It contains two cron jobs concatenated together without a newline:
-  ```
-  0 * * * * /usr/bin/env python3 ~/nvidia-job-alert/job_alert.py >> ~/nvidia-job-alert/cron.log 2>&10 * * * * /usr/bin/env python3 ~/nvidia-job-alert/job_alert.py >> ~/nvidia-job-alert/cron.log 2>&1
-  ```
-- The `2>&10 * * * *` part is incorrect:
-  - `2>&10` is invalid because file descriptor `10` isn’t a standard output (it should be `2>&1` to redirect stderr to stdout).
-  - The second `0 * * * *` after `2>&10` makes the line syntactically incorrect—cron expects each job to be on a separate line.
-
-This syntax error is causing cron to fail to execute the job properly, which explains why `cron.log` isn’t being created.
-
-#### Issue 2: Cron Job Not Executing Properly
-The `syslog` output shows that cron attempted to run the job at 23:00 UTC (which is 7:00 PM if your local timezone is UTC-4, such as Eastern Daylight Time in April):
-```
-Apr  8 23:00:01 nvidia-job-alert-vm CRON[48982]: (Ubuntu) CMD (/usr/bin/env python3 ~/nvidia-job-alert/job_alert.py >> ~/nvidia-job-alert/cron.log 2>&10 * * * * /usr/bin/env python3 ~/nvidia-job-alert/job_alert.py >> ~/nvidia-job-alert/cron.log 2>&1)
-```
-- The command is logged, but the syntax error (`2>&10 * * * * ...`) likely caused cron to fail to execute it properly.
-- There are no subsequent error messages in `syslog`, but the lack of a `cron.log` file suggests the command didn’t produce any output, likely due to the syntax error.
-
-#### Issue 3: Path Expansion (`~`)
-As mentioned earlier, cron might not expand `~` to `/home/ubuntu` correctly in its minimal environment, which could also prevent the log file from being created. We’ll use the full path to avoid this issue.
-
----
-
-### Step 2: Fix the Crontab
-Let’s fix the crontab by correcting the syntax error, using the full path instead of `~`, and adding a timestamp for better logging.
-
-1. **Edit the Crontab**:
-   ```bash
-   crontab -e
-   ```
-
-2. **Replace the Faulty Entry**:
-   Replace the entire crontab content with the following (remove the commented-out example lines if you don’t need them):
-   ```
-   SENDER_EMAIL=fgomecs@gmail.com
-   SENDER_PASSWORD=wdim hzdd mwfp ejfa
-   RECIPIENT_EMAIL=fgomecs@icloud.com
-   0 * * * * echo "[$(date)] Running script..." >> /home/ubuntu/nvidia-job-alert/cron.log && /usr/bin/env python3 /home/ubuntu/nvidia-job-alert/job_alert.py >> /home/ubuntu/nvidia-job-alert/cron.log 2>&1
-   ```
-   - **Changes Made**:
-     - Removed the erroneous `2>&10 * * * * /usr/bin/env python3 ...` part.
-     - Used the full path `/home/ubuntu` instead of `~`.
-     - Added `echo "[$(date)] Running script..."` to prepend a timestamp to each run.
-     - Ensured `2>&1` correctly redirects stderr to stdout, so all output goes to `cron.log`.
-
-3. **Save and Exit**:
-   - Press `Ctrl+O`, then `Enter` to save.
-   - Press `Ctrl+X` to exit.
-
----
-
-### Step 3: Test the Cron Job Manually
-Let’s run the command manually to ensure it works and creates the log file.
-
-1. **Run the Command**:
-   ```bash
-   echo "[$(date)] Running script..." >> /home/ubuntu/nvidia-job-alert/cron.log && /usr/bin/env python3 /home/ubuntu/nvidia-job-alert/job_alert.py >> /home/ubuntu/nvidia-job-alert/cron.log 2>&1
-   ```
-
-2. **Check the Log File**:
-   ```bash
-   cat ~/nvidia-job-alert/cron.log
-   ```
-   You should see output like:
-   ```
-   [Tue Apr  8 23:15:01 UTC 2025] Running script...
-   Previously seen jobs: <number>
-   Found <number> job elements.
-   Jobs posted today: <number>
-   New jobs posted today: 0
-   No new jobs to email.
-   ```
-   - This confirms the script ran, found no new JR numbers, and didn’t send an email.
-   - The presence of `cron.log` confirms the logging is now working.
-
----
-
-### Step 4: Wait for the Next Cron Run
-The next cron run will be at the top of the next hour (e.g., 00:00 UTC, which is 8:00 PM if you’re in UTC-4). You can wait for that run to confirm the cron job is now logging correctly, or check the `syslog` to confirm cron is executing the corrected command.
-
-1. **Check `syslog` for the Next Run**:
-   After 00:00 UTC (8:00 PM your time), check:
-   ```bash
-   grep CRON /var/log/syslog | tail -n 10
-   ```
-   You should see:
-   ```
-   Apr  9 00:00:01 nvidia-job-alert-vm CRON[<pid>]: (Ubuntu) CMD (echo "[$(date)] Running script..." >> /home/ubuntu/nvidia-job-alert/cron.log && /usr/bin/env python3 /home/ubuntu/nvidia-job-alert/job_alert.py >> /home/ubuntu/nvidia-job-alert/cron.log 2>&1)
-   ```
-
-2. **Check the Log File Again**:
-   ```bash
-   cat ~/nvidia-job-alert/cron.log
-   ```
-   You should see the new run with a timestamp:
-   ```
-   [Wed Apr  9 00:00:01 UTC 2025] Running script...
-   Previously seen jobs: <number>
-   Found <number> job elements.
-   Jobs posted today: <number>
-   New jobs posted today: 0
-   No new jobs to email.
-   ```
-
----
-
-### Step 5: Update the README with the Fixed Cron Job
-Since we updated the cron job to use the full path and add timestamps, let’s update the `README.md` in your repository to reflect this change.
-
-1. **Edit `README.md`**:
-   ```bash
-   nano ~/nvidia-job-alert/README.md
-   ```
-
-2. **Update the "Scheduling with Cron" Section**:
-   Replace the cron job example in the "Scheduling with Cron" section with the corrected version:
    ```markdown
+   # NVIDIA Job Alert
+
+   This project is a Python script that scrapes NVIDIA job postings from the Workday career site, filters for jobs posted today in specific US locations, and sends an email with new job listings every hour. It ensures that emails are only sent for new jobs by tracking job IDs (JR numbers).
+
+   ## Features
+   - Scrapes NVIDIA job postings from a filtered Workday URL (specific US locations).
+   - Filters jobs posted today (based on the "Posted Today" label).
+   - Tracks previously seen jobs using JR numbers (e.g., `JR1996090`) to avoid duplicate emails.
+   - Sends an email with new job details (title, location, posted date, JR number, and URL) every hour if new jobs are found.
+   - Runs automatically every hour using a cron job on Ubuntu.
+   - Uses environment variables for secure email configuration.
+
+   ## Prerequisites
+   - **Python 3**: Ensure Python 3 is installed on your system (`python3 --version`).
+   - **Firefox**: Required for Selenium (`sudo apt update && sudo apt install firefox`).
+   - **Geckodriver**: Automatically installed via `webdriver_manager`.
+   - **Dependencies**: Install the required Python packages:
+     ```bash
+     pip3 install selenium webdriver_manager
+     ```
+   - **Email Account**: A Gmail account with an App Password for sending emails.
+     - Enable 2-factor authentication in your Google Account.
+     - Generate an App Password (Google Account > Security > App Passwords > Generate).
+   - **Ubuntu**: The script is designed to run on an Ubuntu VM with cron for scheduling.
+
+   ## Setup
+   1. **Clone the Repository**:
+      ```bash
+      git clone https://github.com/fgomecs/nvidia-job-bot.git
+      cd nvidia-job-alert
+      ```
+
+   2. **Install Dependencies**:
+      ```bash
+      pip3 install -r requirements.txt
+      ```
+
+   3. **Configure Email Settings**:
+      - The script uses environment variables for email configuration:
+        - `SENDER_EMAIL`: Your Gmail address (e.g., `your-email@gmail.com`).
+        - `SENDER_PASSWORD`: Your Gmail App Password (e.g., `abcd efgh ijkl mnop`).
+        - `RECIPIENT_EMAIL`: The email address to receive job alerts (e.g., `recipient-email@example.com`).
+      - Set these variables in your crontab (see "Scheduling with Cron" below) or in your shell for testing:
+        ```bash
+        export SENDER_EMAIL="your-email@gmail.com"
+        export SENDER_PASSWORD="your-app-password"
+        export RECIPIENT_EMAIL="recipient-email@example.com"
+        ```
+
+   4. **Make the Script Executable**:
+      ```bash
+      chmod +x job_alert.py
+      ```
+
+   5. **Test the Script**:
+      Run the script manually to ensure it works:
+      ```bash
+      python3 job_alert.py
+      ```
+      It should scrape jobs, check for new ones, and send an email if there are new jobs posted today.
+
    ## Scheduling with Cron
    The script is designed to run every hour and only send an email if new jobs are found.
 
@@ -152,51 +84,147 @@ Since we updated the cron job to use the full path and add timestamps, let’s u
 
    3. **Save and Exit**:
       Save the crontab file (e.g., `Ctrl+O`, then `Ctrl+X` in `nano`).
+
+   ## Files
+   - `job_alert.py`: The main script that scrapes jobs, tracks seen jobs, and sends emails.
+   - `seen_jobs.json`: Automatically generated file that stores JR numbers of previously seen jobs.
+   - `page_source.html`: Debugging file with the HTML of the scraped page.
+   - `screenshot.png`: Debugging screenshot of the scraped page.
+   - `cron.log`: Log file for cron job output (created after scheduling).
+   - `GitHubHowTo.md`: A guide for using Git and GitHub, including staging, committing, and pushing changes.
+
+   ## How It Works
+   1. **Scraping**: The script uses Selenium to scrape NVIDIA job postings from a filtered Workday URL.
+   2. **Filtering**: Filters jobs posted today (based on "Posted Today" label).
+   3. **Tracking**: Compares JR numbers (e.g., `JR1996090`) against a stored list in `seen_jobs.json` to identify new jobs.
+   4. **Emailing**: Sends an email with new job details (title, location, posted date, JR number, URL) if new jobs are found.
+   5. **Scheduling**: Runs every hour via cron, ensuring emails are only sent for new jobs.
+
+   ## Debugging
+   - **No Email Sent**:
+     - Check `cron.log` for errors:
+       ```bash
+       tail -n 20 /home/ubuntu/nvidia-job-alert/cron.log
+       ```
+     - Ensure your environment variables are set correctly in the crontab.
+     - Verify new jobs exist (run the script manually to see output).
+   - **No Jobs Found**:
+     - Check `page_source.html` and `screenshot.png` to ensure the page loaded correctly.
+     - Verify the Workday URL and selectors (`css-1q2dra3`, etc.) are still valid.
+   - **Reset Seen Jobs**:
+     - Delete `seen_jobs.json` to start fresh (e.g., `rm /home/ubuntu/nvidia-job-alert/seen_jobs.json`).
+   - **Cron Not Running**:
+     - Check the system log for cron activity:
+       ```bash
+       grep CRON /var/log/syslog | tail -n 10
+       ```
+
+   ## Project Status
+   The project is successfully deployed and sending hourly email alerts for new NVIDIA jobs as of April 2025. The cron job is logging with timestamps, and a new job was found and emailed on April 8, 2025, at 8:00 PM local time (00:00 UTC). For a guide on using Git and GitHub to manage this project, see [GitHubHowTo.md](GitHubHowTo.md).
+
+   ## License
+   This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
    ```
 
-3. **Save and Exit**:
+4. **Save and Exit**:
    - Press `Ctrl+O`, then `Enter` to save.
    - Press `Ctrl+X` to exit.
 
-4. **Stage, Commit, and Push the Change**:
+---
+
+### Step 2: Stage and Commit the Updated `README.md`
+Now that you’ve updated `README.md`, let’s stage and commit the change.
+
+1. **Check the Status**:
+   ```bash
+   git status
+   ```
+   You should see:
+   ```
+   On branch main
+   Changes not staged for commit:
+     (use "git add <file>..." to update what will be committed)
+     (use "git restore <file>..." to discard changes in working directory)
+           modified:   README.md
+   ```
+
+2. **Stage the Change**:
    ```bash
    git add README.md
-   git commit -m "Update README with corrected cron job for logging"
-   git push origin main
+   ```
+
+3. **Commit the Change**:
+   ```bash
+   git commit -m "Update README with project status and GitHubHowTo link"
+   ```
+   You should see output like:
+   ```
+   [main <hash>] Update README with project status and GitHubHowTo link
+    1 file changed, 5 insertions(+), 1 deletion(-)
+   ```
+
+4. **Check the Status Again**:
+   ```bash
+   git status
+   ```
+   You should see:
+   ```
+   On branch main
+   Your branch is ahead of 'origin/main' by 1 commit.
+     (use "git push" to publish your local commits)
+   nothing to commit, working tree clean
    ```
 
 ---
 
-### Step 6: Confirm No Email Was Sent
-The log output (once created) should confirm why no email was sent:
-- `New jobs posted today: 0`: No new JR numbers were found.
-- `No new jobs to email`: The script didn’t send an email because there were no new jobs.
+### Step 3: Push the Changes to GitHub
+Now that the change is committed, let’s push it to your GitHub repository.
 
-If the log shows `Email sent successfully!`, it means a new job was found, which would be unexpected unless NVIDIA posted a job recently. You can check your email inbox (`fgomecs@icloud.com`) to confirm.
+1. **Push to the `main` Branch**:
+   ```bash
+   git push origin main
+   ```
+   - Since SSH is set up and working, this should work without a password prompt.
+   - You should see output like:
+     ```
+     Enumerating objects: 5, done.
+     Counting objects: 100% (5/5), done.
+     Delta compression using up to 2 threads
+     Compressing objects: 100% (3/3), done.
+     Writing objects: 100% (3/3), 312 bytes | 312.00 KiB/s, done.
+     Total 3 (delta 2), reused 0 (delta 0), pack-reused 0
+     remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
+     To github.com:fgomecs/nvidia-job-bot.git
+        <hash>..<hash>  main -> main
+     ```
 
 ---
 
-### If the Issue Persists
-If the log file still isn’t created after the next cron run, please share the output of:
-- The updated crontab:
-  ```bash
-  crontab -l
+### Step 4: Verify the Update on GitHub
+- Visit your repository at `https://github.com/fgomecs/nvidia-job-bot`.
+- Check the `README.md` file to confirm the new "Project Status" section is there:
   ```
-- The system log for cron activity:
-  ```bash
-  grep CRON /var/log/syslog | tail -n 10
+  ## Project Status
+  The project is successfully deployed and sending hourly email alerts for new NVIDIA jobs as of April 2025. The cron job is logging with timestamps, and a new job was found and emailed on April 8, 2025, at 8:00 PM local time (00:00 UTC). For a guide on using Git and GitHub to manage this project, see [GitHubHowTo.md](GitHubHowTo.md).
   ```
-- Any errors from the manual run:
-  ```bash
-  /usr/bin/env python3 /home/ubuntu/nvidia-job-alert/job_alert.py
-  ```
+- Click the link to `GitHubHowTo.md` to ensure it works and renders correctly.
+
+---
+
+### If You Encounter Issues
+If the push fails, please share the output of the following commands, and I’ll help debug:
+```bash
+git status
+git log --oneline
+git branch
+git remote -v
+```
 
 ---
 
 ### Final Notes
-- The syntax error in the crontab was the primary reason the log file wasn’t created. Fixing the crontab should resolve this.
-- Using the full path (`/home/ubuntu`) ensures cron can write to the log file.
-- Adding timestamps makes it easier to confirm when the script runs.
-- Once the log file is created, it will confirm the script ran at 7:00 PM (or the next run at 8:00 PM) and didn’t send an email because no new JR numbers were found.
+- Your `README.md` now reflects the latest status of your project, including the successful deployment, logging, and the new job alert you received.
+- The link to `GitHubHowTo.md` makes it easy for you (or others) to manage the project on GitHub.
+- Your project is fully operational, sending alerts, logging runs, and documented on GitHub.
 
-Let me know if the log file is created after these steps, or if you need help with anything else! 😊
+I’m so happy to hear you found a new job posting—hopefully, it’s a great opportunity! Let me know if there’s anything else you’d like to do with the project. 😊
