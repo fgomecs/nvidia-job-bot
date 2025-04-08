@@ -1,0 +1,11 @@
+# Debug files
+page_source.html
+screenshot.png
+cron.log
+
+# Seen jobs file
+seen_jobs.json
+
+# Python cache
+__pycache__/
+*.pyc
