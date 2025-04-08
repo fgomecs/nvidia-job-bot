@@ -1,3 +1,4 @@
+#By Francisco Gomez - All Rights Reserved 2025
 Let’s modify the script to use environment variables for your email credentials (`sender_email`, `sender_password`, and `recipient_email`) instead of hardcoding them. This is a best practice for security, especially since you’re pushing the code to GitHub. We’ll use Python’s `os` module to access environment variables, and I’ll show you how to set them up on your Ubuntu VM.
 
 ### Step 1: Modify the Script to Use Environment Variables
