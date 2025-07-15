@@ -228,3 +228,169 @@ git remote -v
 - Your project is fully operational, sending alerts, logging runs, and documented on GitHub.
 
 I’m so happy to hear you found a new job posting—hopefully, it’s a great opportunity! Let me know if there’s anything else you’d like to do with the project. 😊
+
+
+
+############
+Updated steps as of July 2025
+
+
+## 🛠 Deployment Guide (Oracle Cloud, Ubuntu Minimal)
+
+This guide walks you through setting up and running the `nvidia-job-bot` on a free Oracle Cloud Ubuntu minimal instance with automated scheduling and email alerts.
+
+---
+
+### ☁️ 1. Provision an Oracle Cloud Ubuntu Instance
+
+- Launch a new **Ubuntu Minimal VM** using Oracle Cloud Free Tier
+- During creation, download the **private SSH key (.key)**
+
+---
+
+### 🔐 2. Fix SSH Key Permissions and Connect
+
+```bash
+chmod 600 ~/.ssh/your-key.key
+ssh -i ~/.ssh/your-key.key ubuntu@<your-instance-public-ip>
+```
+
+---
+
+### 🧱 3. Set Up the Server Environment
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-pip python3-venv git
+```
+
+---
+
+### 🔑 4. Enable GitHub Access via SSH
+
+Generate SSH key on the server:
+
+```bash
+ssh-keygen -t ed25519 -C "oracle-vm"
+cat ~/.ssh/id_ed25519.pub
+```
+
+- Go to GitHub → Settings → **SSH and GPG keys**
+- Click "New SSH key" → paste the contents
+
+---
+
+### 📦 5. Clone the Repository
+
+```bash
+git clone git@github.com:fgomecs/nvidia-job-bot.git
+cd nvidia-job-bot
+```
+
+---
+
+### 🐍 6. Create and Activate Python Virtual Environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+---
+
+### 🦊 7. Install Firefox and Headless Browser Dependencies
+
+```bash
+sudo apt install -y firefox libdbus-glib-1-2 libgtk-3-0 libx11-xcb1 libxt6 libxss1 libasound2 libnss3 libxrandr2
+```
+
+Make sure `job_alert.py` includes this headless option (it should already be in there):
+
+```python
+options.add_argument("--headless")
+```
+
+---
+
+### 📧 8. Configure Email with `.env`
+
+Create a `.env` file in the root directory of the project:
+
+```env
+SENDER_EMAIL=your@gmail.com
+SENDER_PASSWORD=your_app_password
+RECIPIENT_EMAIL=recipient@example.com
+```
+
+> 🔐 If using Gmail, [create an App Password](https://myaccount.google.com/apppasswords). You must have 2FA enabled.
+
+---
+
+### ⏱️ 9. Automate Execution with Cron
+
+Install and start `cron`:
+
+```bash
+sudo apt install -y cron
+sudo systemctl enable cron
+sudo systemctl start cron
+```
+
+Edit the crontab:
+
+```bash
+crontab -e
+```
+
+Add the following lines to run every hour and at reboot:
+
+```cron
+0 * * * * cd /home/ubuntu/nvidia-job-bot && /home/ubuntu/nvidia-job-bot/venv/bin/python job_alert.py >> job_alert.log 2>&1
+@reboot cd /home/ubuntu/nvidia-job-bot && /home/ubuntu/nvidia-job-bot/venv/bin/python job_alert.py >> reboot_run.log 2>&1
+```
+
+---
+
+## 🔮 Future Enhancements
+
+### ☁️ Serverless Option (Recommended for Cost and Scale)
+Move this bot to a serverless function like:
+- **AWS Lambda**
+- **Google Cloud Functions**
+- **Oracle Functions**
+
+Advantages:
+- No server management
+- Scales automatically
+- You only pay when the code runs
+
+### 📥 Alternate Notification Channels
+
+Send job alerts via:
+- **Slack** (Slack webhook)
+- **Discord** (Discord webhook)
+- **Telegram Bot**
+
+### 🧠 Better Job Matching
+
+Add keyword ranking, NLP-based scoring, or location filtering to improve match accuracy.
+
+### 💾 Store to Google Sheets or DB
+
+Instead of using flat files, log seen jobs to:
+- Google Sheets (via `gspread`)
+- SQLite or PostgreSQL
+
+### 📊 Monitoring + Logs
+
+Use services like:
+- `logrotate` (local)
+- Papertrail, CloudWatch, or Loggly (remote)
+
+---
+
+## 🎉 You're Done
+
+You now have a fully automated job alert bot running hourly and on system reboot. For questions or improvements, feel free to fork this repo or open an issue!
